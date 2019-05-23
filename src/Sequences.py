@@ -39,6 +39,14 @@ class Sequences:
     LEAVE_HOVER = 113   # 4 drones
     LEAVE_RAMP = 114    # 4 drones
 
+    REAL = {
+        'Take off': TAKE_OFF_STANDARD,
+        'Land unsafe': LAND_UNSAFE,
+        'Hover': HOVER,
+        'Merge 1 to 3': MERGE_1_3_C,
+        'Z step': STEP_Z_POS
+    }
+
     # Collapse?
     # Scatter?
 
@@ -48,14 +56,22 @@ class Sequences:
         :param period_ms:
         """
         # Sanity check, make sure no colliding constants
-        statics = [getattr(self, attr) for attr in dir(self) if not attr.startswith("__")]
-        seen = []
-        for attr in statics:
-            if attr in seen:
-                print('!!!COLLIDING SEQUENCE IDS!!!')
-            seen.append(attr)
+        self.get_statics()
 
         self.period_s = period_ms/1000
+
+    @staticmethod
+    def get_statics():
+        statics = [getattr(Sequences, attr) for attr in dir(Sequences) if not attr.startswith("__")]
+        seen = []
+        collisions = []
+        for attr in statics:
+            if attr in seen:
+                collisions.append(attr)
+                print('!!!COLLIDING SEQUENCE IDS: ' + attr + '!!!')
+            else:
+                seen.append(attr)
+        return seen, collisions
 
     def run(self, swarm, controller, sequence, log=None):
         """
