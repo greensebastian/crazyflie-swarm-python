@@ -1,0 +1,9 @@
+venv/
+src/cache/
+*.pyc
+*.idea/
+*.asv
+*.autosave
+*.slxc
+*.mexw64
+slprj/
