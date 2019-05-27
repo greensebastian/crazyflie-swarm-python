@@ -20,6 +20,10 @@ class CFUtil:
     KEY_DX = 'kalman.statePX'
     KEY_DY = 'kalman.statePY'
     KEY_DZ = 'kalman.statePZ'
+    KEY_BAT = 'pm.vbatMV'
+
+    KEY_CONNECTION = 0
+    KEY_BATTERY = KEY_BAT   # Fugly, please fix
 
     RW_CACHE = "./cache"
 
@@ -97,6 +101,7 @@ class CFUtil:
         config.add_variable(CFUtil.KEY_DX, 'float')
         config.add_variable(CFUtil.KEY_DY, 'float')
         config.add_variable(CFUtil.KEY_DZ, 'float')
+        config.add_variable(CFUtil.KEY_BAT, 'uint16_t')
         return config
 
     @staticmethod
@@ -271,6 +276,14 @@ class CFUtil:
             time.sleep(sleep_time)
 
         CFUtil.send_stop_signal(scf)
+
+    @staticmethod
+    def add_connection_status_cbs(callback, scf):
+        cf = scf.cf
+        cf.connected.add_callback(callback)
+        cf.disconnected.add_callback(callback)
+        cf.connection_failed.add_callback(callback)
+        cf.connection_lost.add_callback(callback)
 
     @staticmethod
     def ext_open_link_cf(scf, timeout=0, retries=5):

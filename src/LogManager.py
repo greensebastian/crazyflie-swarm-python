@@ -79,9 +79,11 @@ class Log:
             time.sleep(sleeptime)
 
     def stop(self):
-        if self.running:
-            self.running = False
+        self.running = False
+        try:
             self.thread.join()
+        except RuntimeError as e:
+            print('Attempted join on unstarted Log')
 
     def push_data(self, data):
         self.data.append(data)

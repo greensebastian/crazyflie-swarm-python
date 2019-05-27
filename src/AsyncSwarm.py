@@ -9,6 +9,7 @@ import cflib.crtp
 from cflib.crazyflie.swarm import Swarm
 from cflib.crazyflie import Crazyflie
 from cflib.crazyflie.syncCrazyflie import SyncCrazyflie
+from cflib.crazyflie import State as CFStates
 
 # List of URIs, comment the one you do not want to fly
 uris_default = CFUtil.URIS_DEFAULT
@@ -72,12 +73,14 @@ class AsyncSwarm(Swarm):
     self.sequential(my_function, args_dict)
     """
 
-    def __init__(self, uri_indices, log=None):
+    def __init__(self, uri_indices, log=None, GUI_callback = None):
         uris = []
         for i in uri_indices:
             uris.append(uris_default[i])
 
         cflib.crtp.init_drivers(enable_debug_driver=False)
+
+        self.GUI_callback = GUI_callback
 
         self._factory = CfFactory(rw_cache=CFUtil.RW_CACHE)
         super(AsyncSwarm, self).__init__(uris, self._factory)
@@ -96,12 +99,15 @@ class AsyncSwarm(Swarm):
     def init_logging(self):
         self.cb_log = self.log.add_caller(name='callbacks', call=None, period_ms=None, start=False)
 
-    def start(self):
+    def start(self, status_callback=None):
         """
         Open communication with all drones and wait for system to stabilize.
         """
+        if self._is_open:
+            print('Error, attempted connection on already open links')
+            return
         starttime = time.time()
-        self.open_links_sequence()
+        self.open_links_sequence(status_callback)
         printf('Links opened after: %d seconds\n', int(time.time()-starttime))
         print('Starting all loggers...')
         self.parallel(partial(CFUtil.start_default_log_config, self.log_callback))
@@ -109,15 +115,19 @@ class AsyncSwarm(Swarm):
 
     def stop(self):
         self.close_links()
-        print('Stopping communication')
+        status = {}
+        for uri in CFUtil.URIS_DEFAULT:
+            status[uri] = {CFUtil.KEY_CONNECTION: CFStates.DISCONNECTED, CFUtil.KEY_BATTERY: 0}
+        print('Disconnected')
+        self.GUI_update(status)
 
-    def open_links_sequence(self):
+    def open_links_sequence(self, status_callback=None):
         """
         Open links to all individuals in the swarm
         """
         if self._is_open:
-            raise Exception('Already opened')
-
+            print('Error, attempted connection on already open links')
+            return
         try:
             self.sequential(self.connect_and_param)
             self.sequential(CFUtil.reset_estimator)
@@ -132,22 +142,33 @@ class AsyncSwarm(Swarm):
         Open link to specified drone and wait for parameters to download.
         Calls external function that resets logging and tries again if first attempt unsuccessful.
         """
+        uri = scf._link_uri
+        self.GUI_update({uri: {CFUtil.KEY_CONNECTION: CFStates.INITIALIZED}})
         time.sleep(1)
         try:
-            CFUtil.ext_open_link_cf(scf, timeout=3, retries=5)
+            CFUtil.ext_open_link_cf(scf, timeout=3, retries=2)
         except AttributeError as e:
             print('Attribute Error caught: ' + ' '.join(e.args))
+            self.GUI_update({uri: {CFUtil.KEY_CONNECTION: CFStates.DISCONNECTED}})
+            return
+        except Exception as e:
+            print('Aborting connection')
+            self.GUI_update({uri: {CFUtil.KEY_CONNECTION: CFStates.DISCONNECTED}})
+            return
         CFUtil.wait_for_param_download(scf)
         CFUtil.stop_all_logging(scf)
+        self.GUI_update({uri: {CFUtil.KEY_CONNECTION: CFStates.CONNECTED}})
 
     def add_drone(self, uri):
         # TODO fix all this...
-        if self._cfs[uri] is not None:
+        if uri in self._cfs:
             return
         scf = self._factory.construct(uri)
         self._cfs[uri] = scf
+        self.state[uri] = [None] * 6
+        self.last_seen[uri] = [0, time.time()]
         if self._is_open:
-            scf.open_link()
+            self.connect_and_param(scf)
 
     def take_off_and_hover(self):
         """
@@ -219,3 +240,12 @@ class AsyncSwarm(Swarm):
         :return: Dict of uris and drones
         """
         return self._cfs
+
+    def GUI_update(self, state):
+        """
+        Push information to attached GUI
+        :param state:
+        :return:
+        """
+        if self.GUI_callback is not None:
+            self.GUI_callback(state)

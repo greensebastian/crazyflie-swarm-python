@@ -1,21 +1,41 @@
 from tkinter import *
 import tkinter.ttk as ttk
 import random
+import threading
 
 from cflib.crazyflie import State as CFStates
+import cflib.crtp
+import logging
 
+from AsyncSwarm import AsyncSwarm
+from LogManager import LogManager
+from Controllers import FlockingController
+from Controllers import DistanceController
+from ControllerThread import ControllerThread
 from CFUtil import CFUtil
+from PyUtil import Periodic
 from Sequences import Sequences
+from SwarmThread import SwarmThread
 
 
 class GUI:
     COLOR_BG = 'white'
     COLOR_FG = 'black'
 
-    def __init__(self):
+    BAT_MIN = 3.3
+    BAT_MAX = 4.23
+
+    def __init__(self, swarm_thread, swarm, controller, controller_thread, log):
         self.root = Tk()
         self.root.title('Crazyflie Swarm Manager 9000')
         self.root.tk_setPalette(background=self.COLOR_BG, foreground=self.COLOR_FG)
+
+        self._swarm_thread = swarm_thread
+        self.swarm = swarm
+        self.swarm.GUI_callback = self.update_states
+        self.controller = controller
+        self.controller_thread = controller_thread
+        self.log = log
 
         frame_left = Frame(self.root)
         frame_left.pack(side='left')
@@ -70,8 +90,6 @@ class GUI:
         self.sequences = Sequences.REAL
         for seq_name in self.sequences:
             self.sequence_picker.insert(END, seq_name)
-            self.sequence_picker.insert(END, seq_name)
-            self.sequence_picker.insert(END, seq_name)
 
         frame_right = Frame(self.root)
         frame_right.pack(side='left')
@@ -102,6 +120,7 @@ class GUI:
         btn.grid(row=3, column=2, columnspan=2, sticky=N+W+S+E)
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.root.after(ms=500, func=self.periodic_task)
         self.root.mainloop()
 
     def set_limits(self):
@@ -122,15 +141,25 @@ class GUI:
             self.limit_vars[i][1].set(str(self.limits[i][1]))
 
     def on_close(self):
+        self.disconnect()
         self.root.destroy()
 
     def connect(self):
-        #TODO
-        pass
+        selected = self.get_selected()
+        if len(selected) is 0:
+            print('Error: no drones selected')
+            return
+        else:
+            for uri in selected:
+                self.swarm.add_drone(uri=uri)
+
+        threading.Thread(target=self.swarm.start).start()
 
     def disconnect(self):
-        #TODO
-        pass
+        self.swarm.stop()
+        self._swarm_thread.stop()
+        self.controller_thread.stop()
+        self.log.stop()
 
     def stop_all(self):
         #TODO Send stop commands, disconnect
@@ -145,16 +174,17 @@ class GUI:
         pass
 
     def start_sequence(self):
-        #TODO
-        pass
+        seq = self.sequence_picker.get(self.sequence_picker.curselection())
+        print(seq + ": " + str(self.sequences[seq]))
+        self._swarm_thread.queue.put({'seq': self.sequences[seq], 'seq_name':seq})
 
     def test(self):
         self.test_status = (self.test_status + 1) % CFStates.SETUP_FINISHED
         state_dict = {}
         for uri in self.status_frames:
             state_dict[uri] = {}
-            state_dict[uri][CFStatusFrame.KEY_CONNECTION] = self.test_status
-            state_dict[uri][CFStatusFrame.KEY_BATTERY] = 0
+            state_dict[uri][CFUtil.KEY_CONNECTION] = self.test_status
+            state_dict[uri][CFUtil.KEY_BATTERY] = 0
         self.update_states(state_dict)
         print('Selected: ' + str(self.get_selected()))
 
@@ -179,6 +209,11 @@ class GUI:
                 selected_uris.append(uri)
         return selected_uris
 
+    def periodic_task(self):
+        state = self.swarm.get_state()
+        self.update_states(state)
+        self.root.after(ms=500, func=self.periodic_task)    # Ew, should be process/thread?
+
     # def scan(self):
     #     self.controller.scan()
     #     if self.controller.is_available():
@@ -192,8 +227,6 @@ class GUI:
 
 
 class CFStatusFrame(Frame):
-    KEY_CONNECTION = 0
-    KEY_BATTERY = 1
 
     def __init__(self, parent, uri, index):
         Frame.__init__(self, parent, highlightthickness=5)
@@ -246,10 +279,16 @@ class CFStatusFrame(Frame):
         Update frame to present specified state of drone
         :param state: dict containing uri keyed state information
         """
-        if self.KEY_CONNECTION in state:
-            self.update_connection_status(state[self.KEY_CONNECTION])
-        if self.KEY_BATTERY in state:
-            self.battery_var.set(random.randint(0, 100))
+        if CFUtil.KEY_CONNECTION in state:
+            self.update_connection_status(state[CFUtil.KEY_CONNECTION])
+        if CFUtil.KEY_BATTERY in state:
+            val = state[CFUtil.KEY_BATTERY]/1000
+            if val < GUI.BAT_MIN:
+                val = GUI.BAT_MIN
+            elif val > GUI.BAT_MAX:
+                val = GUI.BAT_MAX
+            percent = (val-GUI.BAT_MIN)/(GUI.BAT_MAX-GUI.BAT_MIN)*100
+            self.battery_var.set(percent)
 
 
 def bind_tree(widget, event, callback, add=''):
@@ -260,4 +299,28 @@ def bind_tree(widget, event, callback, add=''):
 
 
 if __name__ == "__main__":
-    gui = GUI()
+    # Set logging level to DEBUG
+    logging.basicConfig(level=logging.ERROR)
+    # Initialize the low-level drivers (don't list the debug drivers)
+    cflib.crtp.init_drivers(enable_debug_driver=False)
+    period_ms = 50
+    period_s = period_ms / 1000
+
+    # Log manager initialization
+    log = LogManager()
+    swarm = AsyncSwarm(uri_indices=(), log=log)
+
+    # Controller initialization
+    controller = FlockingController(ref=(0, 0, 1))
+    # controller = DistanceController(ref=(0, 0, 1), period_ms=period_ms)
+    controller_thread = ControllerThread(swarm=swarm, controller_func=controller.compute, period_ms=period_ms)
+    # controller_thread.start()
+
+    # GUI initialization
+    swarm_thread = SwarmThread(swarm=swarm, controller=controller, period_ms=period_ms)
+    gui = GUI(swarm_thread=swarm_thread, swarm=swarm, controller=controller, controller_thread=controller_thread, log=log)
+
+    #swarm.stop()
+    #controller_thread.stop()
+    #log.stop()
+    #log.write_mat()

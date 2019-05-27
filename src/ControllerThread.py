@@ -32,4 +32,7 @@ class ControllerThread(Thread):
 
     def stop(self):
         self.running = False
-        self.join()
+        try:
+            self.join()
+        except RuntimeError as e:
+            print('Attempted join on unstarted ControllerThread')
