@@ -17,6 +17,8 @@ class SwarmThread(Thread):
         Thread.__init__(self)
         self.queue = queue.Queue(maxsize=15)
 
+        self.paused = False
+
         self.swarm = swarm
         self.controller = controller
         self._period_ms = period_ms
@@ -28,15 +30,16 @@ class SwarmThread(Thread):
     def run(self):
         self.starttime = time.time()
         while self.running:
-            if not self.queue.empty():
-                msg = None
-                try:
-                    msg = self.queue.get_nowait()
-                    self._seq.run(swarm=self.swarm, controller=self.controller, sequence=msg['seq'])
-                except queue.Empty:
-                    print('Error, get called on empty queue in SwarmThread.')
-            else:
-                self.swarm.follow_controller(self.controller)
+            if not self.paused:
+                if not self.queue.empty():
+                    msg = None
+                    try:
+                        msg = self.queue.get_nowait()
+                        self._seq.run(swarm=self.swarm, controller=self.controller, sequence=msg['seq'])
+                    except queue.Empty:
+                        print('Error, get called on empty queue in SwarmThread.')
+                else:
+                    self.swarm.follow_controller(self.controller)
 
             # Sleep until next call interval happens
             current_time = time.time()
@@ -50,3 +53,9 @@ class SwarmThread(Thread):
             self.join()
         except RuntimeError as e:
             print('Attempted join on unstarted SwarmThread')
+
+    def pause(self):
+        self.paused = True
+
+    def resume(self):
+        self.paused = False

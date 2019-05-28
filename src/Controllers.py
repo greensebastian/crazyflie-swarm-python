@@ -52,7 +52,7 @@ class FlockingController:
         self.distance_offset = 0
         self.distance_minimum = 0.01
 
-        self.ref = np.array(ref)
+        self.ref = np.array(ref, dtype=float)
         self.output = {}
 
         self._ignore_list = []
@@ -153,7 +153,7 @@ class FlockingController:
         :param new_ref: list[x, y, z]
         :return:
         """
-        self.ref = np.array(new_ref)
+        self.ref = np.array(new_ref, dtype=float)
 
     def get_ref(self):
         """
@@ -204,7 +204,7 @@ class DistanceController:
         self.k_disturb = 0.1
 
         self.dist = 0.5     # defined distance between each drone.
-        self.ref = np.array(ref)
+        self.ref = np.array(ref, dtype=float)
         self.output = {}
 
         self.integ = 0
@@ -376,7 +376,7 @@ class DistanceController:
         return u
 
     def set_ref(self, new_ref):
-        self.ref = np.array(new_ref)
+        self.ref = np.array(new_ref, dtype=float)
 
     def get_ref(self):
         """

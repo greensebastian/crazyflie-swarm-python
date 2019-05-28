@@ -15,6 +15,8 @@ class Sequences:
     TEST_IGNORE_2 = 7
     ROBOT_LAB_1 = 8
     ROBOT_LAB_2 = 9
+    CONTROLLER_SEQ = 10
+
 
     """REPORT SEQUENCES"""
     TAKE_OFF_STANDARD = -2
@@ -44,7 +46,8 @@ class Sequences:
         'Land unsafe': LAND_UNSAFE,
         'Hover': HOVER,
         'Merge 1 to 3': MERGE_1_3_C,
-        'Z step': STEP_Z_POS
+        'Z step': STEP_Z_POS,
+        'Fast sequence': CONTROLLER_SEQ
     }
 
     # Collapse?
@@ -371,6 +374,24 @@ class Sequences:
 
             # state = swarm.get_state()
             # swarm.parallel(CFUtil.land, args_dict=CFUtil.get_land_dict(state=state))
+
+        elif sequence == Sequences.CONTROLLER_SEQ:
+            controller.reset()
+            controller.set_ref(new_ref=(0, 0, 1.2))
+            for cycle in Periodic(duration=2, period=self.period_s):
+                swarm.follow_controller(controller)
+
+            controller.set_ref(new_ref=(0, -0.5, 0.8))
+            for cycle in Periodic(duration=2, period=self.period_s):
+                swarm.follow_controller(controller)
+
+            controller.set_ref(new_ref=(0.5, 0, 1.5))
+            for cycle in Periodic(duration=2, period=self.period_s):
+                swarm.follow_controller(controller)
+
+            controller.set_ref(new_ref=(0, 0, 1))
+            for cycle in Periodic(duration=2, period=self.period_s):
+                swarm.follow_controller(controller)
 
         # Useful standards here
         # Take off and land

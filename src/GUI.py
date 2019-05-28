@@ -22,10 +22,12 @@ class GUI:
     COLOR_BG = 'white'
     COLOR_FG = 'black'
 
-    BAT_MIN = 3.3
+    #  Voltages adjusted for non-flight scenario. Voltage drops dramatically in flight (~0,5V during hover)
+    BAT_MIN = 3.6
     BAT_MAX = 4.23
 
     def __init__(self, swarm_thread, swarm, controller, controller_thread, log):
+        self.swarm_locked = False
         self.root = Tk()
         self.root.title('Crazyflie Swarm Manager 9000')
         self.root.tk_setPalette(background=self.COLOR_BG, foreground=self.COLOR_FG)
@@ -54,7 +56,7 @@ class GUI:
 
         uris = CFUtil.URIS_DEFAULT
         for index, uri in enumerate(uris):
-            status_frame = CFStatusFrame(self.status_container, uri, index)
+            status_frame = CFStatusFrame(self.status_container, uri, index, self)
             status_frame.pack(fill='x', padx=3, pady=3)
             self.status_frames[uri] = status_frame
 
@@ -119,6 +121,25 @@ class GUI:
         btn = Button(frame_limits, text="Reset", command=self.reset_limits)
         btn.grid(row=3, column=2, columnspan=2, sticky=N+W+S+E)
 
+        frame_ref = Frame(frame_right)
+        frame_ref.pack(side='top')
+
+        lbl = Label(frame_ref, text='Ref')
+        lbl.grid(row=1, column=0)
+
+        ref = controller.ref
+        self.ref_vars = [StringVar(value=str(ref[0])), StringVar(value=str(ref[1])), StringVar(value=str(ref[2]))]
+        for i, axes in enumerate(('X', 'Y', 'Z')):
+            label = Label(frame_ref, text=axes)
+            label.grid(row=0, column=i + 1)
+            ref_entry = Entry(frame_ref, textvariable=self.ref_vars[i], width=5)
+            ref_entry.grid(row=1, column=i+1)
+
+        btn = Button(frame_ref, text="Set", command=self.set_ref)
+        btn.grid(row=2, column=0, columnspan=2, sticky=N + W + S + E)
+        btn = Button(frame_ref, text="Reset", command=self.reset_ref)
+        btn.grid(row=2, column=2, columnspan=2, sticky=N + W + S + E)
+
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.after(ms=500, func=self.periodic_task)
         self.root.mainloop()
@@ -140,6 +161,20 @@ class GUI:
             self.limit_vars[i][0].set(str(self.limits[i][0]))
             self.limit_vars[i][1].set(str(self.limits[i][1]))
 
+    def set_ref(self):
+        for i, value in enumerate(self.ref_vars):
+            ref = float(value.get())
+            if self.limits[i][0] < ref < self.limits[i][1]:
+                self.controller.ref[i] = ref
+            else:
+                print('Error: desired reference outside of limits')
+
+        self.reset_ref()
+
+    def reset_ref(self):
+        for i, value in enumerate(self.ref_vars):
+            self.ref_vars[i].set(str(self.controller.ref[i]))
+
     def on_close(self):
         self.disconnect()
         self.root.destroy()
@@ -148,8 +183,10 @@ class GUI:
         selected = self.get_selected()
         if len(selected) is 0:
             print('Error: no drones selected')
+            self.swarm_locked = False
             return
         else:
+            self.swarm_locked = True
             for uri in selected:
                 self.swarm.add_drone(uri=uri)
 
@@ -160,23 +197,51 @@ class GUI:
         self._swarm_thread.stop()
         self.controller_thread.stop()
         self.log.stop()
+        self.swarm_locked = False
 
     def stop_all(self):
         #TODO Send stop commands, disconnect
         pass
 
     def take_off(self):
-        #TODO
+        self._swarm_thread._seq.run(swarm=self.swarm, controller=self.controller, sequence=Sequences.TAKE_OFF_STANDARD)
+        self.start_flight()
         pass
 
     def land_unsafe(self):
-        #TODO
+        try:
+            self._swarm_thread.pause()
+        except Exception as e:
+            print('Exception during stopping of swarm thread')
+        self._swarm_thread._seq.run(swarm=self.swarm, controller=self.controller, sequence=Sequences.LAND_UNSAFE)
+        self.stop_flight()
         pass
+
+    def start_flight(self):
+        self.swarm_locked = True
+        if not self.controller_thread.isAlive():
+            self.controller_thread.start()
+        try:
+            if self._swarm_thread.paused:
+                self._swarm_thread.resume()
+            else:
+                self._swarm_thread.start()
+        except Exception as e:
+            print('Error during flight start')
+            print(e)
+
+    def stop_flight(self):
+        try:
+            self.swarm.parallel(CFUtil.send_stop_signal)
+        except Exception as e:
+            print('Error during flight stop')
+            print(e)
+
 
     def start_sequence(self):
         seq = self.sequence_picker.get(self.sequence_picker.curselection())
         print(seq + ": " + str(self.sequences[seq]))
-        self._swarm_thread.queue.put({'seq': self.sequences[seq], 'seq_name':seq})
+        self._swarm_thread.queue.put({'seq': self.sequences[seq], 'seq_name': seq})
 
     def test(self):
         self.test_status = (self.test_status + 1) % CFStates.SETUP_FINISHED
@@ -189,6 +254,9 @@ class GUI:
         print('Selected: ' + str(self.get_selected()))
 
     def select_all(self):
+        if self.swarm_locked:
+            print('Swarm locked, cannot change selection')
+            return
         for uri in self.status_frames:
             if not self.status_frames[uri].selected:
                 self.status_frames[uri].click_handler()
@@ -228,8 +296,9 @@ class GUI:
 
 class CFStatusFrame(Frame):
 
-    def __init__(self, parent, uri, index):
+    def __init__(self, parent, uri, index, gui):
         Frame.__init__(self, parent, highlightthickness=5)
+        self.gui = gui
 
         self.uri = uri
         self.index = index
@@ -259,7 +328,10 @@ class CFStatusFrame(Frame):
         bind_tree(widget=self, event="<Button-1>", callback=self.click_handler)
 
     def click_handler(self, event=None):
-        print('Clicked: ' + self.uri)
+        #  print('Clicked: ' + self.uri)
+        if self.gui.swarm_locked:
+            print('Swarm locked, cannot change selection')
+            return
         self.selected = not self.selected
         if self.selected:
             self.config(highlightbackground="#317ef9")
