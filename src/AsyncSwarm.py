@@ -81,6 +81,7 @@ class AsyncSwarm(Swarm):
         cflib.crtp.init_drivers(enable_debug_driver=False)
 
         self.GUI_callback = GUI_callback
+        self.controller_active = False
 
         self._factory = CfFactory(rw_cache=CFUtil.RW_CACHE)
         super(AsyncSwarm, self).__init__(uris, self._factory)
@@ -99,7 +100,7 @@ class AsyncSwarm(Swarm):
     def init_logging(self):
         self.cb_log = self.log.add_caller(name='callbacks', call=None, period_ms=None, start=False)
 
-    def start(self, status_callback=None):
+    def start(self):
         """
         Open communication with all drones and wait for system to stabilize.
         """
@@ -107,7 +108,7 @@ class AsyncSwarm(Swarm):
             print('Error, attempted connection on already open links')
             return
         starttime = time.time()
-        self.open_links_sequence(status_callback)
+        self.open_links_sequence()
         printf('Links opened after: %d seconds\n', int(time.time()-starttime))
         print('Starting all loggers...')
         self.parallel(partial(CFUtil.start_default_log_config, self.log_callback))
@@ -121,7 +122,7 @@ class AsyncSwarm(Swarm):
         print('Disconnected')
         self.GUI_update(status)
 
-    def open_links_sequence(self, status_callback=None):
+    def open_links_sequence(self):
         """
         Open links to all individuals in the swarm
         """
@@ -129,8 +130,13 @@ class AsyncSwarm(Swarm):
             print('Error, attempted connection on already open links')
             return
         try:
-            self.sequential(self.connect_and_param)
-            self.sequential(CFUtil.reset_estimator)
+            self.parallel(self.connect_and_param)
+            args_dict = {}
+            uris = self.get_uris()
+            for uri in uris:
+                args_dict[uri] = [self.GUI_callback]
+            self.parallel(CFUtil.reset_estimator, args_dict=args_dict)
+            #self.parallel(CFUtil.reset_estimator)
             self._is_open = True
         except Exception as e:
             print(e)
@@ -187,9 +193,12 @@ class AsyncSwarm(Swarm):
         :return:
         """
         # TODO Change to function parameter instead of controller reference
-        u = controller.get_u_list()
+        if self.controller_active:
+            u = controller.get_u_list()
 
-        self.parallel(CFUtil.set_world_vel_no_yaw, args_dict=u)
+            self.parallel(CFUtil.set_world_vel_no_yaw, args_dict=u)
+        else:
+            return
 
     def log_callback(self, uri, timestamp, data, logconf):
         """Callback from the log API when data arrives"""

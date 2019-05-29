@@ -1,7 +1,8 @@
 from tkinter import *
 import tkinter.ttk as ttk
-import random
+import time
 import threading
+from functools import partial
 
 from cflib.crazyflie import State as CFStates
 import cflib.crtp
@@ -13,7 +14,7 @@ from Controllers import FlockingController
 from Controllers import DistanceController
 from ControllerThread import ControllerThread
 from CFUtil import CFUtil
-from PyUtil import Periodic
+from PyUtil import callback_wrapper
 from Sequences import Sequences
 from SwarmThread import SwarmThread
 
@@ -21,9 +22,15 @@ from SwarmThread import SwarmThread
 class GUI:
     COLOR_BG = 'white'
     COLOR_FG = 'black'
+    COLOR_DISCONNECTED = 'red'
+    COLOR_INITIALIZED = 'yellow'
+    COLOR_CONNECTED = 'lightblue'
+    COLOR_READY = 'green'
 
-    #  Voltages adjusted for non-flight scenario. Voltage drops dramatically in flight (~0,5V during hover)
+    #  Voltages adjusted for non-flight scenario. Voltage drops dramatically in flight (~0,4V during hover)
+    BAT_OFFSET_FLIGHT = 0.4
     BAT_MIN = 3.6
+    BAT_MIN_TAKE_OFF = BAT_MIN + 0.2
     BAT_MAX = 4.23
 
     def __init__(self, swarm_thread, swarm, controller, controller_thread, log):
@@ -38,6 +45,8 @@ class GUI:
         self.controller = controller
         self.controller_thread = controller_thread
         self.log = log
+
+        self.flying = False
 
         frame_left = Frame(self.root)
         frame_left.pack(side='left')
@@ -68,22 +77,22 @@ class GUI:
 
         connection_commands = Frame(frame_middle)
         connection_commands.pack(side='top')
-        btn = Button(connection_commands, text="Connect", command=self.connect, font=(0, 16))
-        btn.pack(side='left')
+        self.btn_connect = Button(connection_commands, text="Connect", command=self.connect, font=(0, 16))
+        self.btn_connect.pack(side='left')
 
-        btn = Button(connection_commands, text="Disconnect", command=self.disconnect, font=(0, 16))
-        btn.pack(side='left')
+        self.btn_disconnect = Button(connection_commands, text="Disconnect", command=self.disconnect, font=(0, 16), state='disabled')
+        self.btn_disconnect.pack(side='left')
 
         flight_commands = Frame(frame_middle)
         flight_commands.pack(side='top')
-        btn = Button(flight_commands, text="Take off", command=self.take_off)
-        btn.pack(side='left')
+        self.btn_take_off = Button(flight_commands, text="Take off", command=self.take_off, state='disabled')
+        self.btn_take_off.pack(side='left')
 
-        btn = Button(flight_commands, text="Land unsafe", command=self.land_unsafe)
-        btn.pack(side='left')
+        self.btn_land_unsafe = Button(flight_commands, text="Land unsafe", command=self.land_unsafe, state='disabled')
+        self.btn_land_unsafe.pack(side='left')
 
-        btn = Button(flight_commands, text="Start sequence", command=self.start_sequence)
-        btn.pack(side='left')
+        self.btn_start_sequence = Button(flight_commands, text="Start sequence", command=self.start_sequence, state='disabled')
+        self.btn_start_sequence.pack(side='left')
 
         #TODO sequence picker
         self.sequence_picker = Listbox(frame_middle, font=(0, 16), selectmode=BROWSE)
@@ -104,7 +113,7 @@ class GUI:
         lbl = Label(frame_limits, text='Min')
         lbl.grid(row=2, column=0)
 
-        self.limits = [[-1.0, 1.0], [-1.0, 1.0], [0.0, 1.5]]
+        self.limits = [[-1.5, 1.5], [-1.5, 1.5], [0.0, 2.0]]
         self.limit_vars = []
         for low, high in self.limits:
             self.limit_vars.append((StringVar(value=str(low)), StringVar(value=str(high))))
@@ -139,6 +148,12 @@ class GUI:
         btn.grid(row=2, column=0, columnspan=2, sticky=N + W + S + E)
         btn = Button(frame_ref, text="Reset", command=self.reset_ref)
         btn.grid(row=2, column=2, columnspan=2, sticky=N + W + S + E)
+
+        self.btn_connect.config(state='normal')
+        self.btn_disconnect.config(state='disabled')
+        self.btn_take_off.config(state='disabled')
+        self.btn_land_unsafe.config(state='disabled')
+        self.btn_start_sequence.config(state='disabled')
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.after(ms=500, func=self.periodic_task)
@@ -190,34 +205,70 @@ class GUI:
             for uri in selected:
                 self.swarm.add_drone(uri=uri)
 
-        threading.Thread(target=self.swarm.start).start()
+        threading.Thread(target=callback_wrapper, args=(self.swarm.start, self._connected)).start()
+        self.btn_connect.config(state='disabled')
+        self.btn_disconnect.config(state='normal')
+        self.btn_take_off.config(state='disabled')
+        self.btn_land_unsafe.config(state='disabled')
+        self.btn_start_sequence.config(state='disabled')
+
+    def _connected(self):
+        self.btn_connect.config(state='disabled')
+        self.btn_disconnect.config(state='normal')
+        self.btn_take_off.config(state='normal')
+        self.btn_land_unsafe.config(state='disabled')
+        self.btn_start_sequence.config(state='disabled')
 
     def disconnect(self):
         self.swarm.stop()
-        self._swarm_thread.stop()
-        self.controller_thread.stop()
+        self._swarm_thread.pause()
+        #self._swarm_thread.stop()
+        #self.controller_thread.stop()
         self.log.stop()
         self.swarm_locked = False
+        self.btn_connect.config(state='normal')
+        self.btn_disconnect.config(state='disabled')
+        self.btn_take_off.config(state='disabled')
+        self.btn_land_unsafe.config(state='disabled')
+        self.btn_start_sequence.config(state='disabled')
 
     def stop_all(self):
-        #TODO Send stop commands, disconnect
-        pass
-
-    def take_off(self):
-        self._swarm_thread._seq.run(swarm=self.swarm, controller=self.controller, sequence=Sequences.TAKE_OFF_STANDARD)
-        self.start_flight()
-        pass
-
-    def land_unsafe(self):
+        self.swarm.controller_active = False
         try:
             self._swarm_thread.pause()
         except Exception as e:
             print('Exception during stopping of swarm thread')
+        time.sleep(0.1)
+        self.stop_flight()
+        self.disconnect()
+        #TODO Send stop commands, disconnect
+        pass
+
+    def take_off(self):
+        state = swarm.get_state()
+        for uri in state:
+            bat = float(state[uri][CFUtil.KEY_BATTERY])/1000
+            if bat <= self.BAT_MIN_TAKE_OFF:
+                print('Battery level of ' + uri + ' too low to start flight. (' + str(bat) + ')')
+                return
+        self._swarm_thread._seq.run(swarm=self.swarm, controller=self.controller, sequence=Sequences.TAKE_OFF_STANDARD)
+        self.start_flight()
+        #self.print_state()
+        pass
+
+    def land_unsafe(self):
+        self.swarm.controller_active = False
+        try:
+            self._swarm_thread.pause()
+        except Exception as e:
+            print('Exception when pausing swarm thread')
+        #self.print_state()
         self._swarm_thread._seq.run(swarm=self.swarm, controller=self.controller, sequence=Sequences.LAND_UNSAFE)
         self.stop_flight()
         pass
 
     def start_flight(self):
+        self.swarm.controller_active = True
         self.swarm_locked = True
         if not self.controller_thread.isAlive():
             self.controller_thread.start()
@@ -229,14 +280,33 @@ class GUI:
         except Exception as e:
             print('Error during flight start')
             print(e)
+        self.btn_connect.config(state='disabled')
+        self.btn_disconnect.config(state='normal')
+        self.btn_take_off.config(state='disabled')
+        self.btn_land_unsafe.config(state='normal')
+        self.btn_start_sequence.config(state='normal')
+        self.flying = True
 
     def stop_flight(self):
         try:
+            self.swarm.controller_active = False
+            time.sleep(0.1)
             self.swarm.parallel(CFUtil.send_stop_signal)
         except Exception as e:
             print('Error during flight stop')
             print(e)
+        self.btn_connect.config(state='disabled')
+        self.btn_disconnect.config(state='normal')
+        self.btn_take_off.config(state='normal')
+        self.btn_land_unsafe.config(state='disabled')
+        self.btn_start_sequence.config(state='disabled')
+        self.flying = False
 
+    def print_state(self):
+        print("controller_active: " + str(self.swarm.controller_active))
+        print("swarm_thread.paused: " + str(self._swarm_thread.paused))
+        print("controller_thread.isAlive(): " + str(self.controller_thread.isAlive()))
+        print("self.flying: " + str(self.flying))
 
     def start_sequence(self):
         seq = self.sequence_picker.get(self.sequence_picker.curselection())
@@ -340,11 +410,13 @@ class CFStatusFrame(Frame):
 
     def update_connection_status(self, status):
         if status is CFStates.DISCONNECTED:
-            self.status.config(text='Disconnected', bg='red')
+            self.status.config(text='Disconnected', bg=GUI.COLOR_DISCONNECTED)
         elif status is CFStates.INITIALIZED:
-            self.status.config(text='Connecting...', bg='yellow')
-        elif status is CFStates.CONNECTED or status is CFStates.SETUP_FINISHED:
-            self.status.config(text='Connected', bg='green')
+            self.status.config(text='Connecting...', bg=GUI.COLOR_INITIALIZED)
+        elif status is CFStates.CONNECTED:
+            self.status.config(text='Connected...', bg=GUI.COLOR_CONNECTED)
+        elif status is CFStates.SETUP_FINISHED:
+            self.status.config(text='Ready', bg=GUI.COLOR_READY)
 
     def update_state(self, state):
         """
@@ -355,6 +427,9 @@ class CFStatusFrame(Frame):
             self.update_connection_status(state[CFUtil.KEY_CONNECTION])
         if CFUtil.KEY_BATTERY in state:
             val = state[CFUtil.KEY_BATTERY]/1000
+            if self.gui.flying:
+                val = val + GUI.BAT_OFFSET_FLIGHT
+
             if val < GUI.BAT_MIN:
                 val = GUI.BAT_MIN
             elif val > GUI.BAT_MAX:

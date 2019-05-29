@@ -2,6 +2,7 @@ import sys
 import time
 import numpy as np
 import math
+import threading
 
 
 def printf(formatting, *args):
@@ -58,3 +59,14 @@ def compute_rejections(A, B):
         angle = max(0.01, math.acos(dAB / (len_A * len_B)))
 
     return angle, rej_A, rej_B
+
+
+def callback_wrapper(target, callback):
+    """
+    Starts a thread that executes run and callback in sequence
+    :param target: Main function to run in thread
+    :param callback: Callback when thread is done
+    :return:
+    """
+    target()
+    callback()

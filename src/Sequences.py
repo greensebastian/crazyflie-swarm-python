@@ -16,6 +16,7 @@ class Sequences:
     ROBOT_LAB_1 = 8
     ROBOT_LAB_2 = 9
     CONTROLLER_SEQ = 10
+    SPIRAL = 11
 
 
     """REPORT SEQUENCES"""
@@ -42,12 +43,10 @@ class Sequences:
     LEAVE_RAMP = 114    # 4 drones
 
     REAL = {
-        'Take off': TAKE_OFF_STANDARD,
-        'Land unsafe': LAND_UNSAFE,
-        'Hover': HOVER,
         'Merge 1 to 3': MERGE_1_3_C,
         'Z step': STEP_Z_POS,
-        'Fast sequence': CONTROLLER_SEQ
+        'Fast sequence': CONTROLLER_SEQ,
+        'Spiral': SPIRAL
     }
 
     # Collapse?
@@ -392,6 +391,29 @@ class Sequences:
             controller.set_ref(new_ref=(0, 0, 1))
             for cycle in Periodic(duration=2, period=self.period_s):
                 swarm.follow_controller(controller)
+
+        elif sequence == Sequences.SPIRAL:
+            z_pos_0 = 0.6
+            dur = 6
+            scale_x = 0.5
+            scale_y = 0.5
+            scale_z = 1.0
+
+            controller.set_ref(new_ref=(0, 0, z_pos_0))
+            for cycle in Periodic(duration=2, period=self.period_s):
+                swarm.follow_controller(controller=controller)
+
+            for cycle in Periodic(duration=dur, period=self.period_s):
+                progress = cycle * self.period_s / dur
+                angle = progress * 2 * math.pi
+                x_pos = math.cos(angle*2) * scale_x
+                y_pos = math.sin(angle*2) * scale_y
+                z_pos = z_pos_0 + progress * scale_z
+                controller.set_ref(new_ref=(x_pos, y_pos, z_pos))
+                swarm.follow_controller(controller=controller)
+
+            for cycle in Periodic(duration=1, period=self.period_s):
+                swarm.follow_controller(controller=controller)
 
         # Useful standards here
         # Take off and land

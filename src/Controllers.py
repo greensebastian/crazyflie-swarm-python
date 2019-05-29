@@ -32,7 +32,7 @@ import PyUtil
 class FlockingController:
     # TODO Make this whole thing thread safe, multiple holes in implementation
 
-    def __init__(self, ref=(0, 0, 1), k=1, weight=(1, 0, 0.1, 0.05)):
+    def __init__(self, ref=(0, 0, 1), k=1, weight=(1, 0, 0.15, 0.05)):
         """
         Weighed swarm controller balancing relative positions and velocities of drones
         :param ref: List of swarm center reference point (x, y, z)
@@ -254,7 +254,7 @@ class DistanceController:
 
     def _update_params(self, states, uris, count):
 
-        swarm_pos = np.zeros(3)
+        swarm_pos = np.zeros(3, dtype=float)
 
         # Remove detached drone from swarm calculation
         # for uri in uris:
@@ -286,7 +286,7 @@ class DistanceController:
         # Initialize velocity vector
         pdot = {}
         for uri in uris:
-            pdot[uri] = np.zeros(3)
+            pdot[uri] = np.zeros(3, dtype=float)
 
         # Save active drones separately
         uris_active = list(set(uris) - set(self._ignore_list))
@@ -388,8 +388,8 @@ class DistanceController:
     def reset(self):
         self.integ = 0
         self.deriv = 0
-        self.swarm_e = 0
-        self.prev_swarm_e = 0
+        self.swarm_e = np.zeros(3, dtype=float)
+        self.prev_swarm_e = np.zeros(3, dtype=float)
 
     def add_ignore(self, uri):
         """

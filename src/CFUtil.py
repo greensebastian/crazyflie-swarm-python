@@ -10,6 +10,8 @@ from cflib.crazyflie.syncLogger import SyncLogger
 from cflib.crazyflie.commander import Commander
 from cflib.crtp.crtpstack import CRTPPacket
 from cflib.crazyflie import Crazyflie
+from cflib.crazyflie import State as CFStates
+from cflib.crazyflie.syncCrazyflie import SyncCrazyflie
 
 
 class CFUtil:
@@ -67,12 +69,13 @@ class CFUtil:
         URI5: [[0, -0.5, 1, 0]]
     }
 
+    HEIGHT_LAND = -0.1
     POS_LAND = {
-        URI1: [[0, 0, 0, 0]],
-        URI2: [[0.5, 0, 0, 0]],
-        URI3: [[0, 0.5, 0, 0]],
-        URI4: [[-0.5, 0, 0, 0]],
-        URI5: [[0, -0.5, 0, 0]]
+        URI1: [[0, 0, HEIGHT_LAND, 0]],
+        URI2: [[0.5, 0, HEIGHT_LAND, 0]],
+        URI3: [[0, 0.5, HEIGHT_LAND, 0]],
+        URI4: [[-0.5, 0, HEIGHT_LAND, 0]],
+        URI5: [[0, -0.5, HEIGHT_LAND, 0]]
     }
 
     @staticmethod
@@ -128,7 +131,7 @@ class CFUtil:
         var_x_history = [1000] * 10
         var_z_history = [1000] * 10
 
-        threshold = 0.001
+        threshold = 0.01
 
         with SyncLogger(scf, log_config) as logger:
             for log_entry in logger:
@@ -163,13 +166,15 @@ class CFUtil:
         print('Parameters downloaded for', scf.cf.link_uri)
 
     @staticmethod
-    def reset_estimator(scf):
+    def reset_estimator(scf, callback=None):
         cf = scf.cf
         cf.param.set_value('kalman.resetEstimation', '1')
         time.sleep(0.1)
         cf.param.set_value('kalman.resetEstimation', '0')
 
-        CFUtil.wait_for_position_estimator(cf)
+        CFUtil.wait_for_position_estimator(scf)
+        if callback:
+            callback({scf._link_uri: {CFUtil.KEY_CONNECTION: CFStates.SETUP_FINISHED}})
 
     @staticmethod
     def set_abs_pos(scf, pos):
@@ -254,13 +259,14 @@ class CFUtil:
         args_dict = {}
         state = CFUtil.state_dict_to_numpy_matrix(state)
         for uri in state:
-            args_dict[uri] = CFUtil.POS_LAND[uri]
+            args_dict[uri] = copy(CFUtil.POS_LAND[uri])
             args_dict[uri].append(list(state[uri]))
         return args_dict
 
     @staticmethod
     def land(scf, position, current_position=None):
         if current_position is None:
+            print('current_position is None')
             return
 
         cf = scf.cf
@@ -269,7 +275,7 @@ class CFUtil:
         steps = int(landing_time / sleep_time)
         vz = position[2]-current_position[2] / landing_time
 
-        print(vz)
+        print('In land CFUtil')
 
         for i in range(steps):
             cf.commander.send_velocity_world_setpoint(0, 0, vz, 0)
