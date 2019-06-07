@@ -1,0 +1,1 @@
+python3 setup_wrapper.py; make -C ./crazyflie-firmware;
