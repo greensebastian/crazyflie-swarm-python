@@ -176,6 +176,16 @@ class AsyncSwarm(Swarm):
         if self._is_open:
             self.connect_and_param(scf)
 
+    def remove_drone(self, uri):
+        if uri not in self._cfs:
+            return
+        elif self._is_open:
+            print("Cannot remove drone while connected")
+            return
+        del self._cfs[uri]
+        del self.state[uri]
+        del self.last_seen[uri]
+
     def take_off_and_hover(self):
         """
         Uses predefined positions as listed above, be careful when starting

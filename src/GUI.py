@@ -202,6 +202,10 @@ class GUI:
             return
         else:
             self.swarm_locked = True
+            old_uris = self.swarm.get_uris()
+            for uri in old_uris:
+                if uri not in selected:
+                    self.swarm.remove_drone(uri=uri)
             for uri in selected:
                 self.swarm.add_drone(uri=uri)
 
@@ -250,7 +254,7 @@ class GUI:
             bat = float(state[uri][CFUtil.KEY_BATTERY])/1000
             if bat <= self.BAT_MIN_TAKE_OFF:
                 print('Battery level of ' + uri + ' too low to start flight. (' + str(bat) + ')')
-                return
+                #return
         self._swarm_thread._seq.run(swarm=self.swarm, controller=self.controller, sequence=Sequences.TAKE_OFF_STANDARD)
         self.start_flight()
         #self.print_state()

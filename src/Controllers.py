@@ -32,7 +32,7 @@ import PyUtil
 class FlockingController:
     # TODO Make this whole thing thread safe, multiple holes in implementation
 
-    def __init__(self, ref=(0, 0, 1), k=1, weight=(1, 0, 0.15, 0.05)):
+    def __init__(self, ref=(0, 0, 1), k=1, weight=(1, 0, 0.1, 0.05)):
         """
         Weighed swarm controller balancing relative positions and velocities of drones
         :param ref: List of swarm center reference point (x, y, z)

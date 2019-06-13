@@ -5,6 +5,14 @@ import math
 
 
 class Sequences:
+    """
+    Class containing all sequences available through the GUI
+    Sequences should contain code sending commands to the drones, and should be blocking.
+    Add a static key for the sequence, and a corresponding elif statement
+
+    Sequences only show up in the GUI after you add an entry to the REAL dictionary containing a readable name and the
+    static key for the specific sequence.
+    """
     TAKE_OFF_FOLLOW_CONTROLLER = 0
     TAKE_OFF_HOVER = 1
     TAKE_OFF_CONTROLLER_SEQ = 2
@@ -617,9 +625,9 @@ class Sequences:
                 swarm.follow_controller(controller)
 
         elif sequence == Sequences.MERGE_1_3_C:
-            start_1 = (0, -1, 1.3)
-            start_2 = (0, 1, 1.3)
-            merge_pos = (0, 0, 1.3)
+            start_1 = (0, -0.8, 1)
+            start_2 = (0, 0.8, 1)
+            merge_pos = (0, 0, 1)
 
             uri1 = swarm.get_uris()[0]
             scf1 = swarm.get_cfs()[uri1]
